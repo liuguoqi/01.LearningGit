@@ -1,6 +1,9 @@
-
-
-
+###########################################################################
+#This is a Python script is to scrapy data from website !                 #
+#You can get Python3+ from the offical website of www.python.org !        #
+#                                                                         #
+#                                                                         #
+###########################################################################
 <!DOCTYPE html>
 <html
     xmlns:og="http://ogp.me/ns#"
