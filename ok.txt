@@ -1,0 +1,280 @@
+function (modeling.output, new.env, proj.name, xy.new.env = NULL, 
+    selected.models = "all", binary.meth = NULL, filtered.meth = NULL, 
+    compress = TRUE, build.clamping.mask = TRUE, ...) 
+{
+    args <- list(...)
+    omit.na <- args$omit.na
+    silent <- args$silent
+    do.stack <- args$do.stack
+    clamping.level <- args$clamping.levels
+    output.format <- args$output.format
+    keep.in.memory <- args$keep.in.memory
+    on_0_1000 <- args$on_0_1000
+    split.proj <- args$split.proj
+    if (is.null(omit.na)) 
+        omit.na <- TRUE
+    if (is.null(silent)) 
+        silent <- FALSE
+    if (is.null(do.stack)) 
+        do.stack <- TRUE
+    if (is.null(keep.in.memory)) 
+        keep.in.memory <- TRUE
+    if (is.null(on_0_1000)) 
+        on_0_1000 <- TRUE
+    if (is.null(split.proj)) 
+        split.proj <- 1
+    if (!silent) {
+        .bmCat("Do Models Projections")
+    }
+    args <- .BIOMOD_Projection.check.args(modeling.output, new.env, 
+        proj.name, xy.new.env, selected.models, binary.meth, 
+        filtered.meth, compress, do.stack, output.format)
+    proj.name <- args$proj.name
+    selected.models <- args$selected.models
+    binary.meth <- args$binary.meth
+    filtered.meth <- args$filtered.meth
+    compress <- args$compress
+    do.stack <- args$do.stack
+    xy.new.env <- args$xy.new.env
+    output.format <- args$output.format
+    rm(args)
+    proj_out <- new("BIOMOD.projection.out", proj.names = proj.name, 
+        sp.name = modeling.output@sp.name, expl.var.names = modeling.output@expl.var.names, 
+        models.projected = selected.models, scaled.models = modeling.output@rescal.all.models, 
+        xy.coord = xy.new.env, modeling.object.id = modeling.output@modeling.id)
+    proj_out@modeling.object@link = modeling.output@link
+    if (inherits(new.env, "Raster")) {
+        proj_out@proj <- new("BIOMOD.stored.raster.stack")
+    }
+    else {
+        proj_out@proj <- new("BIOMOD.stored.array")
+    }
+    dir.create(file.path(modeling.output@sp.name, paste("proj_", 
+        proj.name, sep = "")), showWarnings = FALSE, recursive = TRUE, 
+        mode = "777")
+    if (build.clamping.mask) {
+        if (!silent) 
+            cat("\n\t> Building clamping mask\n")
+        MinMax <- get_formal_data(modeling.output, "MinMax")
+        assign(x = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+            "_ClampingMask", sep = ""), value = .build.clamping.mask(new.env, 
+            MinMax))
+        if (output.format == ".RData") {
+            save(list = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+                "_ClampingMask", sep = ""), file = file.path(modeling.output@sp.name, 
+                paste("proj_", proj.name, sep = ""), paste("proj_", 
+                  proj.name, "_ClampingMask", output.format, 
+                  sep = "")), compress = compress)
+        }
+        else {
+            writeRaster(x = get(paste("proj_", proj.name, "_", 
+                modeling.output@sp.name, "_ClampingMask", sep = "")), 
+                filename = file.path(modeling.output@sp.name, 
+                  paste("proj_", proj.name, sep = ""), paste("proj_", 
+                    proj.name, "_ClampingMask", output.format, 
+                    sep = "")), datatype = "INT2S", NAflag = -9999, 
+                overwrite = TRUE)
+        }
+    }
+    if (!do.stack) {
+        dir.create(file.path(modeling.output@sp.name, paste("proj_", 
+            proj.name, sep = ""), "individual_projections"), 
+            showWarnings = FALSE, recursive = TRUE, mode = "777")
+    }
+    saved.files <- c()
+    proj <- lapply(selected.models, function(mod.name) {
+        cat("\n\t> Projecting", mod.name, "...")
+        BIOMOD_LoadModels(modeling.output, full.name = mod.name, 
+            as = "mod")
+        filename <- NULL
+        if (!do.stack) {
+            filename <- file.path(modeling.output@sp.name, paste("proj_", 
+                proj.name, sep = ""), "individual_projections", 
+                paste("proj_", proj.name, "_", mod.name, ifelse(output.format == 
+                  ".RData", ".grd", output.format), sep = ""))
+        }
+        pred.tmp <- predict(mod, new.env, on_0_1000 = on_0_1000, 
+            filename = filename, omit.na = omit.na, split.proj = split.proj)
+        if (do.stack) {
+            return(pred.tmp)
+        }
+        else {
+            return(filename)
+        }
+    })
+    if (!do.stack) {
+        saved.files <- unlist(proj)
+    }
+    else {
+        if (inherits(new.env, "Raster")) {
+            proj <- stack(proj)
+            names(proj) <- selected.models
+        }
+        else {
+            proj <- as.data.frame(proj)
+            names(proj) <- selected.models
+            proj <- DF_to_ARRAY(proj)
+        }
+        if (keep.in.memory) {
+            proj_out@proj@val <- proj
+            proj_out@proj@inMemory <- TRUE
+        }
+    }
+    assign(x = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+        sep = ""), value = proj)
+    if (output.format == ".RData") {
+        saved.files <- file.path(modeling.output@sp.name, paste("proj_", 
+            proj.name, sep = ""), paste("proj_", proj.name, "_", 
+            modeling.output@sp.name, output.format, sep = ""))
+        save(list = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+            sep = ""), file = saved.files, compress = compress)
+    }
+    else {
+        if (do.stack) {
+            saved.files <- file.path(modeling.output@sp.name, 
+                paste("proj_", proj.name, sep = ""), paste("proj_", 
+                  proj.name, "_", modeling.output@sp.name, output.format, 
+                  sep = ""))
+            writeRaster(x = get(paste("proj_", proj.name, "_", 
+                modeling.output@sp.name, sep = "")), filename = saved.files, 
+                overwrite = TRUE, )
+        }
+    }
+    proj_out@type <- class(proj_out@proj@val)
+    proj_out@proj@link <- saved.files
+    if (!is.null(binary.meth) | !is.null(filtered.meth)) {
+        cat("\n")
+        eval.meth <- unique(c(binary.meth, filtered.meth))
+        if (inherits(new.env, "Raster")) {
+            thresholds <- matrix(0, nrow = length(eval.meth), 
+                ncol = length(selected.models), dimnames = list(eval.meth, 
+                  selected.models))
+            for (mod in selected.models) {
+                PA.run <- .extractModelNamesInfo(model.names = mod, 
+                  info = "data.set")
+                eval.run <- .extractModelNamesInfo(model.names = mod, 
+                  info = "run.eval")
+                algo.run <- .extractModelNamesInfo(model.names = mod, 
+                  info = "models")
+                thresholds[eval.meth, mod] <- get_evaluations(modeling.output)[eval.meth, 
+                  "Cutoff", algo.run, eval.run, PA.run]
+                if (!on_0_1000) 
+                  thresholds[eval.meth, mod] <- thresholds[eval.meth, 
+                    mod]/1000
+            }
+        }
+        else {
+            thresholds <- array(0, dim = c(length(eval.meth), 
+                dim(proj)[-1]), dimnames = c(list(eval.meth), 
+                dimnames(proj)[-1]))
+            for (mod in selected.models) {
+                PA.run <- .extractModelNamesInfo(model.names = mod, 
+                  info = "data.set")
+                eval.run <- .extractModelNamesInfo(model.names = mod, 
+                  info = "run.eval")
+                algo.run <- .extractModelNamesInfo(model.names = mod, 
+                  info = "models")
+                thresholds[eval.meth, algo.run, eval.run, PA.run] <- get_evaluations(modeling.output)[eval.meth, 
+                  "Cutoff", algo.run, eval.run, PA.run]
+                if (!on_0_1000) 
+                  thresholds[eval.meth, algo.run, eval.run, PA.run] <- thresholds[eval.meth, 
+                    algo.run, eval.run, PA.run]/1000
+            }
+        }
+        for (eval.meth in binary.meth) {
+            cat("\n\t> Building", eval.meth, "binaries")
+            if (!do.stack) {
+                for (i in 1:length(proj_out@proj@link)) {
+                  file.tmp <- proj_out@proj@link[i]
+                  thres.tmp <- asub(thresholds, eval.meth[drop = FALSE], 
+                    1, drop = FALSE)[, i]
+                  writeRaster(x = BinaryTransformation(raster(file.tmp, 
+                    RAT = FALSE), thres.tmp), filename = sub(output.format, 
+                    paste("_", eval.meth, "bin", output.format, 
+                      sep = ""), file.tmp), overwrite = TRUE, 
+                    datatype = "INT2S", NAflag = -9999)
+                }
+            }
+            else {
+                assign(x = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+                  "_", eval.meth, "bin", sep = ""), value = BinaryTransformation(proj, 
+                  asub(thresholds, eval.meth[drop = FALSE], 1, 
+                    drop = FALSE)))
+                if (output.format == ".RData") {
+                  save(list = paste("proj_", proj.name, "_", 
+                    modeling.output@sp.name, "_", eval.meth, 
+                    "bin", sep = ""), file = file.path(modeling.output@sp.name, 
+                    paste("proj_", proj.name, sep = ""), paste("proj_", 
+                      proj.name, "_", modeling.output@sp.name, 
+                      "_", eval.meth, "bin", output.format, sep = "")), 
+                    compress = compress)
+                }
+                else {
+                  writeRaster(x = get(paste("proj_", proj.name, 
+                    "_", modeling.output@sp.name, "_", eval.meth, 
+                    "bin", sep = "")), filename = file.path(modeling.output@sp.name, 
+                    paste("proj_", proj.name, sep = ""), paste("proj_", 
+                      proj.name, "_", modeling.output@sp.name, 
+                      "_", eval.meth, "bin", output.format, sep = "")), 
+                    overwrite = TRUE, datatype = "INT2S", NAflag = -9999)
+                }
+                rm(list = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+                  "_", eval.meth, "bin", sep = ""))
+            }
+        }
+        for (eval.meth in filtered.meth) {
+            cat("\n\t> Building", eval.meth, "filtered")
+            if (!do.stack) {
+                for (i in 1:length(proj_out@proj@link)) {
+                  file.tmp <- proj_out@proj@link[i]
+                  thres.tmp <- asub(thresholds, eval.meth[drop = FALSE], 
+                    1, drop = FALSE)[, i]
+                  writeRaster(x = FilteringTransformation(raster(file.tmp, 
+                    RAT = FALSE), thres.tmp), filename = sub(output.format, 
+                    paste("_", eval.meth, "filt", output.format, 
+                      sep = ""), file.tmp), overwrite = TRUE, 
+                    datatype = ifelse(on_0_1000, "INT2S", "FLT4S"), 
+                    NAflag = -9999)
+                }
+            }
+            else {
+                assign(x = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+                  "_", eval.meth, "filt", sep = ""), value = FilteringTransformation(proj, 
+                  asub(thresholds, eval.meth[drop = FALSE], 1, 
+                    drop = FALSE)))
+                if (output.format == ".RData") {
+                  save(list = paste("proj_", proj.name, "_", 
+                    modeling.output@sp.name, "_", eval.meth, 
+                    "filt", sep = ""), file = file.path(modeling.output@sp.name, 
+                    paste("proj_", proj.name, sep = ""), paste("proj_", 
+                      proj.name, "_", modeling.output@sp.name, 
+                      "_", eval.meth, "filt", output.format, 
+                      sep = "")), compress = compress)
+                }
+                else {
+                  writeRaster(x = get(paste("proj_", proj.name, 
+                    "_", modeling.output@sp.name, "_", eval.meth, 
+                    "filt", sep = "")), filename = file.path(modeling.output@sp.name, 
+                    paste("proj_", proj.name, sep = ""), paste("proj_", 
+                      proj.name, "_", modeling.output@sp.name, 
+                      "_", eval.meth, "filt", output.format, 
+                      sep = "")), overwrite = TRUE, datatype = ifelse(on_0_1000, 
+                    "INT2S", "FLT4S"), NAflag = -9999)
+                }
+                rm(list = paste("proj_", proj.name, "_", modeling.output@sp.name, 
+                  "_", eval.meth, "filt", sep = ""))
+            }
+        }
+    }
+    assign(paste(modeling.output@sp.name, ".", proj.name, ".projection.out", 
+        sep = ""), free(proj_out))
+    save(list = paste(modeling.output@sp.name, ".", proj.name, 
+        ".projection.out", sep = ""), file = file.path(modeling.output@sp.name, 
+        paste("proj_", proj.name, sep = ""), paste(modeling.output@sp.name, 
+            ".", proj.name, ".projection.out", sep = "")))
+    if (!silent) 
+        .bmCat("Done")
+    return(proj_out)
+}
+<bytecode: 0x1045c9f0>
+<environment: namespace:biomod2>
