@@ -8,7 +8,6 @@ This is a test Git study !
 1. Please prepare a Linux OS . 
 2. Sign in a Github NO. 
 3. Initing operate simply .
-
 If you have any questions  please contact me .
 email : liuguoqii@163.com 
-
+Creating a new branch is quick to dev branch ...........
